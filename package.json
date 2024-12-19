@@ -9,9 +9,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "puppeteer": "^13.5.2",
+    "exceljs": "^4.4.0",
+    "puppeteer": "^23.11.0",
     "puppeteer-cluster": "^0.23.0",
     "puppeteer-extra": "^3.2.3",
-    "puppeteer-extra-plugin-recaptcha": "^3.5.0"
+    "puppeteer-extra-plugin-recaptcha": "^3.5.0",
+    "readline-sync": "^1.4.10"
   }
 }

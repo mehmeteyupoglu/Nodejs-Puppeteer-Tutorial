@@ -1,76 +1,92 @@
-const fs = require("fs");
 const puppeteer = require("puppeteer");
+const readline = require("readline");
+const ExcelJS = require("exceljs");
 
-const sleep = (milliseconds) => {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-};
+// Create an interface for user input
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
-(async () => {
-  const browser = await puppeteer.launch({
-    headless: false,
-    defaultViewport: false,
-    userDataDir: "./tmp",
-  });
-
-  const page = await browser.newPage();
-  await page.goto(
-    "https://www.amazon.com/s?i=computers-intl-ship&bbn=16225007011&rh=n%3A16225007011%2Cn%3A11036071%2Cp_36%3A1253503011&dc&fs=true&qid=1635596580&rnid=16225007011&ref=sr_pg_1"
-  );
-
-  let isBtnDisabled = false;
-  while (!isBtnDisabled) {
-    await page.waitForSelector('[data-cel-widget="search_result_0"]');
-    const productsHandles = await page.$$(
-      "div.s-main-slot.s-result-list.s-search-results.sg-row > .s-result-item"
-    );
-
-    for (const producthandle of productsHandles) {
-      let title = "Null";
-      let price = "Null";
-      let img = "Null";
-
+// Prompt the user for sector keywords and number of news articles
+rl.question("Enter sector keywords: ", (keywords) => {
+  rl.question(
+    "Enter the number of news articles to extract: ",
+    async (numArticles) => {
       try {
-        title = await page.evaluate(
-          (el) => el.querySelector("h2 > a > span").textContent,
-          producthandle
-        );
-      } catch (error) {}
+        // Launch the browser
+        const browser = await puppeteer.launch({
+          headless: false,
+          defaultViewport: false,
+          userDataDir: "./tmp",
+        });
 
-      try {
-        price = await page.evaluate(
-          (el) => el.querySelector(".a-price > .a-offscreen").textContent,
-          producthandle
-        );
-      } catch (error) {}
+        // Open a new page
+        const page = await browser.newPage();
 
-      try {
-        img = await page.evaluate(
-          (el) => el.querySelector(".s-image").getAttribute("src"),
-          producthandle
-        );
-      } catch (error) {}
-      if (title !== "Null") {
-        fs.appendFile(
-          "results.csv",
-          `${title.replace(/,/g, ".")},${price},${img}\n`,
-          function (err) {
-            if (err) throw err;
+        // Go to Google and search for the keywords
+        await page.goto("https://www.google.com");
+        await page.waitForSelector('textarea[name="q"]'); // Wait for the search input to be available
+        await page.type('textarea[name="q"]', keywords);
+        await page.keyboard.press("Enter");
+        await page.waitForNavigation(); // Wait for the search results page to load
+
+        // Click on the "Haberler" (News) tab
+        await page.waitForSelector('a[href*="tbm=nws"]'); // Wait for the "Haberler" tab to be available
+        await page.click('a[href*="tbm=nws"]');
+        await page.waitForSelector("a.WlydOe"); // Wait for the news results to load
+
+        // Extract the specified number of news links
+        const newsLinks = await page.evaluate((numArticles) => {
+          const links = [];
+          const items = document.querySelectorAll("a.WlydOe");
+          for (let i = 0; i < numArticles && i < items.length; i++) {
+            const titleElement = items[i].querySelector(".n0jPhd");
+            const dateElement = items[i].querySelector(".OSrXXb span");
+            if (titleElement && dateElement) {
+              links.push({
+                title: titleElement.innerText,
+                url: items[i].href,
+                date: dateElement.innerText,
+              });
+            }
           }
-        );
+          return links;
+        }, numArticles);
+
+        // Close the browser
+        await browser.close();
+
+        // Create a new Excel workbook and worksheet
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("News");
+
+        // Add column headers
+        worksheet.columns = [
+          { header: "Title", key: "title", width: 50 },
+          { header: "URL", key: "url", width: 100 },
+          { header: "Date", key: "date", width: 20 },
+        ];
+
+        // Add the news links to the worksheet
+        newsLinks.forEach((link) => {
+          worksheet.addRow({
+            title: link.title,
+            url: { text: link.url, hyperlink: link.url },
+            date: link.date,
+          });
+        });
+
+        // Save the workbook to a file
+        await workbook.xlsx.writeFile("news.xlsx");
+
+        console.log("News exported to news.xlsx");
+      } catch (error) {
+        console.error("An error occurred:", error);
+      } finally {
+        // Close the readline interface
+        rl.close();
       }
     }
-
-    await page.waitForSelector("li.a-last", { visible: true });
-    const is_disabled = (await page.$("li.a-disabled.a-last")) !== null;
-
-    isBtnDisabled = is_disabled;
-    if (!is_disabled) {
-      await Promise.all([
-        page.click("li.a-last"),
-        page.waitForNavigation({ waitUntil: "networkidle2" }),
-      ]);
-    }
-  }
-
-  await browser.close();
-})();
+  );
+});
